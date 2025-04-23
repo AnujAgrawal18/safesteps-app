@@ -65,15 +65,32 @@ export default function ReportScreen() {
         return;
       }
 
-      const location = await Location.getCurrentPositionAsync({});
+      // Get precise location with high accuracy
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+        // Removed maximumAge as it is not a valid property
+      });
+
+      // Get location name using reverse geocoding
+      const [address] = await Location.reverseGeocodeAsync({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      });
+
+      const locationName = address 
+        ? `${address.street || ''} ${address.city || ''} ${address.region || ''}`
+        : 'Location found';
+
       setLocation(location);
       Toast.show({
         type: 'success',
         text1: 'Location added successfully',
+        text2: locationName,
         position: 'top',
       });
     } catch (error) {
-      Alert.alert('Error', 'Failed to get location');
+      console.error('Location error:', error);
+      Alert.alert('Error', 'Failed to get location. Please try again.');
     }
   };
 
@@ -142,15 +159,32 @@ export default function ReportScreen() {
         return;
       }
 
+      let locationData = null;
+      if (location) {
+        // Get location name before submitting
+        const [address] = await Location.reverseGeocodeAsync({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        });
+
+        locationData = {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          accuracy: location.coords.accuracy,
+          altitude: location.coords.altitude,
+          locationName: address 
+            ? `${address.street || ''} ${address.city || ''} ${address.region || ''}`
+            : 'Unknown location',
+          timestamp: location.timestamp,
+        };
+      }
+
       const reportData = {
         type,
         description,
         severity,
         timestamp: serverTimestamp(),
-        location: location ? {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-        } : null,
+        location: locationData,
         image: image,
         reportedBy: anonymous ? 'Anonymous' : (auth.currentUser?.displayName || 'Unknown'),
         userId: anonymous ? null : auth.currentUser?.uid,
@@ -306,7 +340,7 @@ export default function ReportScreen() {
         <View style={styles.locationInfo}>
           <Ionicons name="location" size={16} color={isDark ? '#fff' : '#666'} />
           <Text style={[styles.locationText, isDark && styles.darkText]}>
-            Location added successfully
+            {`Lat: ${location.coords.latitude.toFixed(6)}, Long: ${location.coords.longitude.toFixed(6)}`}
           </Text>
           <TouchableOpacity onPress={() => setLocation(null)}>
             <Ionicons name="close-circle" size={20} color="red" />

@@ -73,6 +73,17 @@ const SafetyTips = [
   },
 ];
 
+const INCIDENT_COLORS = {
+  'Stalking': '#FF3B30',
+  'Harassment': '#FF9500',
+  'Catcalling': '#FF2D55',
+  'Theft': '#5856D6', 
+  'Unsafe Area': '#FF9500',
+  'Poor Lighting': '#34C759',
+  'Suspicious Activity': '#FF3B30',
+  'Other': '#8E8E93',
+};
+
 export default function ExploreScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
@@ -100,15 +111,28 @@ export default function ExploreScreen() {
           orderBy('timestamp', 'desc')
         );
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-          const fetchedReports = snapshot.docs.map(doc => ({
-            id: doc.id,
-            type: doc.data().type || 'Unknown',
-            location: doc.data().location || { latitude: 0, longitude: 0 },
-            description: doc.data().description || 'No description provided',
-            verified: doc.data().verified || false,
-            timeAgo: formatTimeAgo(doc.data().timestamp?.toDate()),
-          }));
+        const unsubscribe = onSnapshot(q, async (snapshot) => {
+          const reportPromises = snapshot.docs.map(async doc => {
+            const data = doc.data();
+            let locationDisplay = '';
+
+            if (data.location) {
+              locationDisplay = await formatLocation(data.location);
+            } else {
+              locationDisplay = await formatLocation(null);
+            }
+
+            return {
+              id: doc.id,
+              type: data.type || 'Unknown',
+              location: locationDisplay,
+              description: data.description || 'No description provided',
+              verified: data.verified || false,
+              timeAgo: formatTimeAgo(data.timestamp?.toDate()),
+            };
+          });
+
+          const fetchedReports = await Promise.all(reportPromises);
           setReports(fetchedReports);
           setLoading(false);
         }, (err) => {
@@ -144,10 +168,36 @@ export default function ExploreScreen() {
     return `${Math.floor(diffInMinutes / 1440)} days ago`;
   };
 
-  const formatLocation = (location: string | { latitude: number; longitude: number } | undefined): string => {
-    if (!location) return 'Unknown location';
+  const formatLocation = async (location: any): Promise<string> => {
+    if (!location) {
+      try {
+        // Get user's current location
+        const currentLocation = await Location.getCurrentPositionAsync({});
+        const [address] = await Location.reverseGeocodeAsync({
+          latitude: currentLocation.coords.latitude,
+          longitude: currentLocation.coords.longitude,
+        });
+        return `${address.street || ''} ${address.city || ''} ${address.region || ''}`.trim();
+      } catch {
+        return 'Location unavailable';
+      }
+    }
+
     if (typeof location === 'string') return location;
-    return `${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)}`;
+
+    if (location.latitude && location.longitude) {
+      try {
+        const [address] = await Location.reverseGeocodeAsync({
+          latitude: location.latitude,
+          longitude: location.longitude,
+        });
+        return `${address.street || ''} ${address.city || ''} ${address.region || ''}`.trim();
+      } catch {
+        return `${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)}`;
+      }
+    }
+
+    return 'Location unavailable';
   };
 
   const handleSearch = (text: string) => {
@@ -167,7 +217,7 @@ export default function ExploreScreen() {
         const fetchedReports = snapshot.docs.map(doc => ({
           id: doc.id,
           type: doc.data().type || 'Unknown',
-          location: doc.data().location || { latitude: 0, longitude: 0 },
+          location: doc.data().locationName || 'Unknown Location', // Use location name
           description: doc.data().description || 'No description provided',
           verified: doc.data().verified || false,
           timeAgo: formatTimeAgo(doc.data().timestamp?.toDate()),
@@ -295,6 +345,10 @@ export default function ExploreScreen() {
     </View>
   );
 
+  const getIncidentColor = (type: string) => {
+    return INCIDENT_COLORS[type as keyof typeof INCIDENT_COLORS] || '#1E90FF';
+  };
+
   const renderReports = () => (
     <View>
       {loading ? (
@@ -316,20 +370,34 @@ export default function ExploreScreen() {
         </View>
       ) : (
         reports.map((report, index) => (
-          <View key={index} style={styles.reportCard}>
+          <View 
+            key={index} 
+            style={[
+              styles.reportTile,
+              isDark && styles.darkTile,
+              {
+                borderLeftWidth: 4,
+                borderLeftColor: getIncidentColor(report.type),
+              }
+            ]}
+          >
             <View style={styles.reportHeader}>
-              <View style={styles.reportType}>
-                <Ionicons name="alert-circle" size={20} color="#ff4d4f" />
-                <Text style={styles.reportTypeText}>{report.type}</Text>
-              </View>
-              <Text style={styles.timeAgo}>{report.timeAgo}</Text>
+              <Text style={[
+                styles.reportType,
+                isDark && styles.darkText,
+                { color: getIncidentColor(report.type) }
+              ]}>
+                {report.type}
+              </Text>
+              <Text style={[styles.timeAgo, isDark && styles.darkText]}>{report.timeAgo}</Text>
             </View>
-            <View style={styles.locationContainer}>
-              <Ionicons name="location" size={16} color="#666" />
-              <Text style={styles.location}>{formatLocation(report.location)}</Text>
-            </View>
-            <Text style={styles.description}>{report.description}</Text>
-            <View style={styles.reportFooter}>
+            <Text style={[styles.reportLocation, isDark && styles.darkText]}>
+              {typeof report.location === 'string' ? report.location : 'Location unavailable'}
+            </Text>
+            <Text style={[styles.reportDescription, isDark && styles.darkText]}>
+              {report.description}
+            </Text>
+            <View style={styles.reportActions}>
               <TouchableOpacity style={styles.actionButton} onPress={() => handleShare(report)}>
                 <Ionicons name="share-social" size={16} color="#1E90FF" />
                 <Text style={styles.actionText}>Share</Text>
@@ -399,7 +467,7 @@ export default function ExploreScreen() {
               const fetchedReports = snapshot.docs.map(doc => ({
                 id: doc.id,
                 type: doc.data().type || 'Unknown',
-                location: doc.data().location || { latitude: 0, longitude: 0 },
+                location: doc.data().locationName || 'Unknown Location', // Use location name
                 description: doc.data().description || 'No description provided',
                 verified: doc.data().verified || false,
                 timeAgo: formatTimeAgo(doc.data().timestamp?.toDate()),
@@ -425,42 +493,58 @@ export default function ExploreScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#f5f9fa',
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
-    padding: 12,
+    padding: 16,
     marginHorizontal: 16,
     marginTop: 16,
-    borderRadius: 12,
-    elevation: 2,
+    borderRadius: 16,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
   },
   searchInput: {
     flex: 1,
-    marginLeft: 8,
+    marginLeft: 12,
     fontSize: 16,
+    color: '#333',
   },
   tabContainer: {
     flexDirection: 'row',
     paddingHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 8,
+    marginTop: 20,
+    marginBottom: 12,
   },
   tab: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    marginRight: 8,
-    borderRadius: 20,
-    backgroundColor: '#eee',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    marginRight: 12,
+    borderRadius: 25,
+    backgroundColor: '#f0f0f0',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
   },
   activeTab: {
     backgroundColor: '#1E90FF',
+    elevation: 4,
+    shadowColor: '#1E90FF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
   },
   tabText: {
     color: '#666',
-    fontWeight: '500',
+    fontWeight: '600',
+    fontSize: 15,
   },
   activeTabText: {
     color: '#fff',
@@ -468,183 +552,190 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
   },
-  filterContainer: {
-    flexDirection: 'row',
+  reportTile: {
+    backgroundColor: '#ffffff',  // Pure white background
+    padding: 20,
+    borderRadius: 20,
     marginBottom: 16,
-    gap: 8,
-  },
-  filterChip: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-    backgroundColor: '#fff',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#f0f0f0',
+    overflow: 'hidden',
   },
-  filterText: {
-    color: '#666',
-    fontSize: 14,
+  darkTile: {
+    backgroundColor: '#2d2d2d',
+    borderColor: '#404040',
   },
-  reportCard: {
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-    elevation: 2,
-  },
-  reportHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  reportType: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  reportTypeText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#ff4d4f',
-  },
-  timeAgo: {
-    color: '#666',
-    fontSize: 14,
-  },
-  locationContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  location: {
-    marginLeft: 4,
-    color: '#666',
-  },
-  description: {
-    fontSize: 14,
-    color: '#444',
-    marginBottom: 12,
-  },
-  reportFooter: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 12,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  actionText: {
-    color: '#1E90FF',
-    fontSize: 14,
+  darkText: {
+    color: '#ffffff',  // Keep white text for dark mode
   },
   safeSpotCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-    elevation: 2,
-  },
-  safeSpotIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#E8F5E9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  safeSpotInfo: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  safeSpotName: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  safeSpotDistance: {
-    color: '#666',
-    fontSize: 14,
-  },
-  safeSpotStatus: {
-    color: '#4CAF50',
-    fontSize: 14,
-  },
-  directionButton: {
-    backgroundColor: '#1E90FF',
-    width: 40,
-    height: 40,
+    padding: 20,
     borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
+    marginBottom: 16,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
   },
   tipCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-    elevation: 2,
-  },
-  tipContent: {
-    marginLeft: 12,
-    flex: 1,
-  },
-  tipTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  tipDescription: {
-    color: '#666',
-    fontSize: 14,
+    padding: 20,
+    borderRadius: 20,
+    marginBottom: 16,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
   },
   darkContainer: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#121212',
   },
   darkCard: {
     backgroundColor: '#2d2d2d',
+    borderColor: '#404040',
   },
-  darkText: {
-    color: '#fff',
+  reportHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
   },
-  darkFilterChip: {
-    backgroundColor: '#2d2d2d',
-    borderColor: '#444',
+  reportType: {
+    fontSize: 18,
+    fontWeight: '700',
+    // Remove the fixed color since we'll set it dynamically
   },
-  activeFilterChip: {
+  timeAgo: {
+    fontSize: 14,
+    color: '#666',
+  },
+  reportLocation: {
+    fontSize: 15,
+    marginBottom: 10,
+    color: '#000000',  // Pure black text
+    fontWeight: '500',
+  },
+  reportDescription: {
+    fontSize: 15,
+    marginBottom: 16,
+    color: '#000000',  // Pure black text
+    lineHeight: 22,
+  },
+  reportActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+    paddingTop: 12,
+    marginTop: 4,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#f8f9fa',
+  },
+  actionText: {
+    fontSize: 14,
+    color: '#1E90FF',
+    fontWeight: '600',
+  },
+  safeSpotIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#f0f0f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  safeSpotInfo: {
+    flex: 1,
+    marginLeft: 16,
+  },
+  safeSpotName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 4,
+  },
+  safeSpotDistance: {
+    fontSize: 15,
+    color: '#666',
+    marginBottom: 2,
+  },
+  safeSpotStatus: {
+    fontSize: 14,
+    color: '#4CAF50',
+    fontWeight: '600',
+  },
+  directionButton: {
     backgroundColor: '#1E90FF',
-    borderColor: '#1E90FF',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 4,
+    shadowColor: '#1E90FF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
   },
-  activeFilterText: {
-    color: '#fff',
+  tipContent: {
+    flex: 1,
+    marginLeft: 16,
+  },
+  tipTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 6,
+  },
+  tipDescription: {
+    fontSize: 15,
+    color: '#666',
+    lineHeight: 22,
   },
   loadingContainer: {
-    padding: 20,
+    padding: 32,
     alignItems: 'center',
   },
   loadingText: {
-    marginTop: 10,
+    marginTop: 12,
     color: '#666',
+    fontSize: 16,
   },
   errorContainer: {
-    padding: 20,
+    padding: 32,
     alignItems: 'center',
   },
   errorText: {
-    color: '#ff4d4f',
+    color: '#FF3B30',
     textAlign: 'center',
+    fontSize: 16,
+    lineHeight: 24,
   },
   emptyContainer: {
-    padding: 20,
+    padding: 32,
     alignItems: 'center',
   },
   emptyText: {
     color: '#666',
     textAlign: 'center',
+    fontSize: 16,
   },
 });
