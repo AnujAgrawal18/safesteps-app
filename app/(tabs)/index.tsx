@@ -1,9 +1,38 @@
-import { View, Text, StyleSheet, Image } from 'react-native';
+import { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
+import { auth, db } from '@/firebase/config';
+import { signOut } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
+import { useRouter } from 'expo-router';
 
 export default function HomeScreen() {
+  const [userName, setUserName] = useState('User');
+  const router = useRouter();
+
+  useEffect(() => {
+    const fetchUserName = async () => {
+      if (auth.currentUser) {
+        const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+        if (userDoc.exists()) {
+          setUserName(userDoc.data().name || 'User');
+        }
+      }
+    };
+    fetchUserName();
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      router.replace('/login'); // Redirect to login after logout
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
+  };
+
   return (
     <View style={styles.container}>
-      <Text style={styles.subheading}>Hi Priya 👋</Text>
+      <Text style={styles.subheading}>Hi {userName} 👋</Text>
       <Text style={styles.subheading}>You are currently in a SafeZone ✅</Text>
 
       <View style={styles.card}>
@@ -27,10 +56,14 @@ export default function HomeScreen() {
           style={styles.avatar}
         />
         <View>
-          <Text style={styles.userName}>Priya Sharma</Text>
+          <Text style={styles.userName}>{userName}</Text>
           <Text style={styles.userContact}>Emergency Contact: +91 9876543210</Text>
         </View>
       </View>
+
+      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+        <Text style={styles.logoutText}>Logout</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -86,5 +119,17 @@ const styles = StyleSheet.create({
   userContact: {
     fontSize: 13,
     color: '#666',
+  },
+  logoutButton: {
+    marginTop: 20,
+    backgroundColor: '#FF3B30',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  logoutText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 16,
   },
 });

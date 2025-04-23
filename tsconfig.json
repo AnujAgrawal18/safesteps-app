@@ -6,7 +6,11 @@
       "@/*": [
         "./*"
       ]
-    }
+    },
+    "module": "es2020"
+  },
+  "angularCompilerOptions": {
+    "enableIvy": true
   },
   "include": [
     "**/*.ts",
